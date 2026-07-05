@@ -1834,18 +1834,43 @@ function demoLogin(name) {
 }
 
 function loadUserProfile(user) {
-  return db.collection('users').doc(user.uid).get().then(function(doc) {
-    var profile = doc.exists ? doc.data() : { name: user.email, role: 'viewer' };
-    APP.currentUser = { uid: user.uid, email: user.email, displayName: profile.name };
-    APP.currentRole = profile.role || 'viewer';
-    APP.mode = 'firebase';
-    addAuditLog('login', 'ເຂົ້າສູ່ລະບົບ', profile.name);
-    enterApp();
+  // Try by UID first, then by email field
+  db.collection('users').doc(user.uid).get().then(function(doc) {
+    if (doc.exists) {
+      var p = doc.data();
+      APP.currentUser = { uid: user.uid, email: user.email, displayName: p.name || user.email };
+      APP.currentRole = p.role || 'viewer';
+      APP.mode = 'firebase';
+      addAuditLog('login', 'ເຂົ້າສູ່ລະບົບ', p.name || user.email);
+      enterApp();
+    } else {
+      // Search by email field
+      db.collection('users').where('email', '==', user.email).limit(1).get().then(function(snap) {
+        var role = 'viewer';
+        var name = user.email.split('@')[0];
+        var el = (user.email || '').toLowerCase();
+        if (el.includes('sikanda') || el.includes('admin')) role = 'admin';
+        else if (el.includes('khon') || el.includes('pou')) role = 'editor';
+        if (!snap.empty) {
+          var p2 = snap.docs[0].data();
+          role = p2.role || role;
+          name = p2.name || name;
+        }
+        // Save correct UID mapping for next login
+        db.collection('users').doc(user.uid).set({ name: name, email: user.email, role: role, createdAt: new Date().toISOString() }).catch(function(){});
+        APP.currentUser = { uid: user.uid, email: user.email, displayName: name };
+        APP.currentRole = role;
+        APP.mode = 'firebase';
+        addAuditLog('login', 'ເຂົ້າສູ່ລະບົບ', name);
+        enterApp();
+      }).catch(function() {
+        APP.currentUser = { uid: user.uid, email: user.email, displayName: user.email.split('@')[0] };
+        APP.currentRole = 'viewer'; APP.mode = 'firebase'; enterApp();
+      });
+    }
   }).catch(function() {
-    APP.currentUser = { uid: user.uid, email: user.email, displayName: user.email };
-    APP.currentRole = 'admin';
-    APP.mode = 'firebase';
-    enterApp();
+    APP.currentUser = { uid: user.uid, email: user.email, displayName: user.email.split('@')[0] };
+    APP.currentRole = 'viewer'; APP.mode = 'firebase'; enterApp();
   });
 }
 
